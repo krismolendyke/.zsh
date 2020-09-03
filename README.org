@@ -11,6 +11,7 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
 
   #+BEGIN_SRC sh
     mkdir -p ~/.bashrc.d/secret
+    mkdir -p ~/.nvm
     # TODO: fix the fact that something below this needs a file to exist in the secrets dir
     mkdir -p ~/.ssh/config
   #+END_SRC
@@ -175,8 +176,6 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
 
       export DESKTOP=${HOME}/Desktop
       export DOWNLOADS=${HOME}/Downloads
-      export GOPATH=${HOME}/go
-      export GOROOT=/usr/local/opt/go/libexec
       export HOMEBREW_CASK_HOME=/usr/local/Caskroom
       export HOMEBREW_CELLAR=$(/usr/local/bin/brew --cellar)
       export HOMEBREW_INSTALL_CLEANUP=1
@@ -185,6 +184,7 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
 
       export MANPATH=/usr/local/share/man:${MANPATH}
       export NODE_PATH=/usr/local/lib/node_modules:${NODE_PATH}
+      export NVM_DIR=${HOME}/.nvm
     #+END_SRC
 
     Non file system variables.
@@ -194,6 +194,7 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
       export EMACS_VERSION="HEAD"
       export LANG=en_US.UTF-8
       export PIPENV_SHELL_FANCY=1
+      export RIPGREP_CONFIG_PATH="${HOME}/.ripgreprc"
       export TERM=xterm-256color
     #+END_SRC
 
@@ -252,8 +253,8 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
       pathmunge /usr/local/sbin
       pathmunge /usr/local/bin
       pathmunge "${HOME}/bin"
+      pathmunge "${HOME}/go/bin"
       pathmunge "${CARGO_HOME}/bin"
-      pathmunge "${GOPATH}/bin"
       pathmunge "${GOROOT}/bin"
       pathmunge "${VLC_HOME}"
       pathmunge "$(/usr/local/bin/brew --prefix git)/share/git-core/contrib/diff-highlight"
@@ -272,6 +273,21 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
     #+BEGIN_SRC sh
       eval "$(jenv init -)"
     #+END_SRC
+    
+*** NVM
+
+    #+BEGIN_SRC sh
+      [ -s "/usr/local/opt/nvm/nvm.sh" ] && . "/usr/local/opt/nvm/nvm.sh"  # This loads nvm
+      [ -s "/usr/local/opt/nvm/etc/bash_completion" ] && . "/usr/local/opt/nvm/etc/bash_completion"  # This loads nvm bash_completion
+    #+END_SRC
+
+*** pyenv
+
+   #+BEGIN_SRC sh
+     if command -v pyenv 1>/dev/null 2>&1; then
+         eval "$(pyenv init -)"
+     fi
+   #+END_SRC
 
 *** =PYTHON_USER_BASE=
 
@@ -286,7 +302,7 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
       pathmunge "${PYTHON_USER_BASE}/bin"
     #+END_SRC
 
-*** =PROMPT_COMMAND=
+*** TODO =PROMPT_COMMAND=
 
     TODO try out https://github.com/magicmonty/bash-git-prompt
 
@@ -346,18 +362,28 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
     #+BEGIN_SRC sh
       function k20e_kubectx() {
           declare -r BLUE='\[\e[0;34m\]'
+          declare -r RED='\[\e[0;31m\]'
           declare -r RED_BG='\[\e[0;41m\]'
           declare -r RESET='\[\e[0m\]'
           declare -r PREFIX="${BLUE}k8s${RESET} "
           declare -r SUFFIX="${RESET} "
           local value=''
-          if [ -e ${HOME}/.kube/config ]; then
+          if [[ $KUBECONFIG == *kind-config-kind ]]; then
+              value="${PREFIX}local${SUFFIX}"
+          elif [ -e ${HOME}/.kube/config ]; then
               value=$(cat ${HOME}/.kube/config | grep current-context | cut -d ' ' -f 2)
               fullname=${value}
               if [[ "${value}" =~ ^gke_ ]]; then
                   value=$(echo "${value}" | cut -d _ -f 4)
               fi
-              value="${value}${RESET}·$(kubectl config view -o=jsonpath="{.contexts[?(@.name==\"${fullname}\")].context.namespace}")"
+              if grep -q '# BEGIN hosts added by Pulse' /etc/hosts; then
+                  value="${value}${RESET}·$(kubectl config view -o=jsonpath="{.contexts[?(@.name==\"${fullname}\")].context.namespace}")"
+              else
+                  value="${value}${RESET}·VPN OFF"
+              fi
+              if [[ "${value}" =~ .*staging.* ]]; then
+                  value="${RED}${value}"
+              fi
               if [[ "${value}" =~ .*prod.* ]]; then
                   value="${RED_BG}${value}"
               fi
@@ -605,6 +631,10 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
            show = diff-highlight | less
      [interactive]
            diffFilter = diff-highlight
+     [pull]
+           rebase = false
+     [rerere]
+           enabled = true
    #+END_SRC
 
 ** =.gitignore-global=
@@ -726,6 +756,13 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
 
   See also [[#functions-python][Python functions]].
 
+** pyenv
+
+   I use this to avoid having to track latest Python from Homebrew
+   since almost every other recipe depends on it.  Having it get
+   updated all the time screws up all the virtual environments,
+   pre-commit hooks, etc.
+   
 ** =requirements-to-freeze.txt=
    :PROPERTIES:
    :header-args: :tangle ~/requirements-to-freeze.txt
@@ -736,6 +773,8 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
 
    #+BEGIN_SRC python
      # User packages
+     black
+     coverage
      http-prompt
      keyring
      pipdeptree[graphviz]
@@ -785,7 +824,9 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
    :END:
 
    #+BEGIN_SRC sh
+     tap "confluentinc/ccloud"
      tap "crisidev/chunkwm"
+     tap "garethr/kubeval"
      tap "homebrew/bundle"
      tap "homebrew/cask"
      tap "homebrew/cask-drivers"
@@ -796,7 +837,6 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
      tap "jmespath/jmespath"
      tap "koekeishiya/formulae"
      cask "java"
-     cask "xquartz"
      cask "java8"
      brew "apr"
      brew "openssl"
@@ -808,7 +848,6 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
      brew "bison"
      brew "freetype"
      brew "fontconfig"
-     brew "font-input"
      brew "gettext", link: true
      brew "pixman"
      brew "cairo"
@@ -817,7 +856,9 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
      brew "chicken"
      brew "cmake"
      brew "docker-completion"
+     brew "docker-machine-driver-hyperkit"
      brew "faac"
+     brew "harfbuzz"
      brew "lame"
      brew "xvid"
      brew "ffmpeg"
@@ -835,7 +876,6 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
      brew "gradle"
      brew "grafana"
      brew "groovy"
-     brew "harfbuzz"
      brew "hugo"
      brew "hunspell"
      brew "imagemagick"
@@ -844,12 +884,15 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
      brew "ispell"
      brew "jenv"
      brew "jid"
+     brew "oniguruma"
+     brew "jq"
      brew "kafka"
      brew "lz4"
      brew "kafkacat"
      brew "kotlin"
      brew "kubernetes-cli"
-     brew "kubectx", args: ["with-short-names"]
+     brew "kubectx"
+     brew "kubernetes-helm"
      brew "less"
      brew "libav"
      brew "libcroco"
@@ -864,7 +907,6 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
      brew "maven"
      brew "ninja"
      brew "node"
-     brew "oniguruma"
      brew "parallel"
      brew "perl"
      brew "protobuf"
@@ -879,6 +921,7 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
      brew "shellcheck"
      brew "sshtrix"
      brew "subversion"
+     brew "telnet"
      brew "terminal-notifier"
      brew "texi2html"
      brew "the_silver_searcher"
@@ -888,10 +931,12 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
      brew "yarn"
      brew "yasm"
      brew "youtube-dl"
+     brew "confluentinc/ccloud/ccloud"
+     brew "garethr/kubeval/kubeval"
      brew "jmespath/jmespath/jp"
-     cask "1password"
      brew "koekeishiya/formulae/chunkwm"
      brew "koekeishiya/formulae/skhd"
+     cask "airserver"
      cask "alacritty"
      cask "alfred"
      cask "android-platform-tools"
@@ -911,14 +956,19 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
      cask "istat-menus5"
      cask "iterm2"
      cask "keepingyouawake"
+     cask "kitty"
      cask "mactex-no-gui"
+     cask "minikube"
      cask "plex-media-player"
      cask "pocket-casts"
+     cask "postman"
      cask "racket"
      cask "slack"
      cask "vanilla"
      cask "viscosity"
      cask "vlc"
+     cask "xquartz"
+     cask "yed"
      cask "zoomus"
      mas "Pages", id: 409201541
      mas "Pixelmator", id: 407963104
@@ -965,7 +1015,7 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
 
 * ChunkWM
 
-** =.chunkwm=
+** =~/.chunkwmrc=
    :PROPERTIES:
    :header-args: :tangle ~/.chunkwmrc
    :END:
@@ -1374,3 +1424,16 @@ in [[http://www.gnu.org/software/emacs/][Emacs]] with [[http://orgmode.org/][Org
 
      # ctrl + alt - w : chunkc tiling::desktop --deserialize ~/.chunkwm_layouts/dev_1
    #+END_SRC
+
+* =${HOME}/.ripgreprc=
+  :PROPERTIES:
+  :CUSTOM_ID: ripgreprc
+  :header-args: :tangle ~/.ripgreprc
+  :END:
+
+  #+BEGIN_SRC sh
+    --glob=!.git/*
+    --hidden
+    --no-ignore
+    --sort=path
+  #+END_SRC
